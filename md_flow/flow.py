@@ -1,7 +1,6 @@
 # from metaflow import FlowSpec
 import requests
 import logging
-import subprocess
 import os
 import gmxapi
 
@@ -53,7 +52,7 @@ def pdb2gmx(
     top_name="topol",
     itp_name="posre",
     temp_dir=""
-) -> None:
+) -> any:
     """
     Function that invokes the pdb2gmx helper function in Gromacs. This will
     convert a PDB file format containing the structure of a protein (say pulled
@@ -69,6 +68,12 @@ def pdb2gmx(
     Returns:
         Nothing
     """
+    # get the og cwd to go back later before returning
+    original_dir = os.getcwd()
+
+    # change to the temp dir so all rando files/folders get made there
+    os.chdir(temp_dir)
+
     # create the temp pdb file from the string input
     temp_pdb = open(os.path.join(temp_dir, "temp_input.pdb"), 'w')
     temp_pdb.write(file_string)
@@ -87,13 +92,8 @@ def pdb2gmx(
         itp_file = itp_name + ".itp"
     else:
         itp_file = itp_name
-
-    # add the temp dir to each of the output file names
-    gro_file = os.path.join(temp_dir, gro_file)
-    top_file = os.path.join(temp_dir, top_file)
-    itp_file = os.path.join(temp_dir, itp_file)
     logger.info(
-        f"going to store the pdb2gmx outputs at {gro_file} and {top_file}"
+        f"going to store the pdb2gmx outputs at {gro_file} and {top_file} inside of temp dir: {temp_dir}"
     )
 
     args = ['pdb2gmx', '-ff', 'amber03', '-water', 'tip3p']
@@ -107,12 +107,59 @@ def pdb2gmx(
         'gmx', args, input_files, output_files
     )
 
+    # change back to og dir
+    os.chdir(original_dir)
+
     # return the resolved file paths
     return make_top.output
 
 
-def hydrate_simulation_box():
-    pass
+# NOTE: since the gromacs output structs are heavily mixed with C++ types,
+#       there's no way to provide effective type annotations here :(
+def hydrate_simulation_box(protein_gro: any, logger: logging.Logger, temp_dir:str = "") -> any:
+    """
+    Goal of this step is to hydrate the simulation box with an appropriate
+    amount of water molecules. A concentration may be provided to ensure the
+    simulation box is a certain size to get the right protein conc.
+
+    Parameters:
+        protein_gro (any): The output data structure representing the protein.
+        logger (logging.Logger): The logger used to send messages to console.
+    Returns:
+        solvated_gro (any): The solvated output data structure of the protein.
+    """
+
+    # get the og cwd to go back later before returning
+    original_dir = os.getcwd()
+
+    # change to the temp dir so all rando files/folders get made there
+    os.chdir(temp_dir)
+
+    # increase the size of the protein bounding box and center it
+    edit_args = ["editconf", "-c", "-d", "1.5"]
+    edit_inputs = {"-f": protein_gro.file["-o"].result()}
+    edit_outputs = {"-o": "empty_protein.gro"}
+    make_edits = gmxapi.commandline_operation(
+        "gmx", edit_args, edit_inputs, edit_outputs
+    )
+
+    # solvate the protein structure file with water molecules
+    solv_args = ["solvate"]
+    solv_inputs = {
+        "-cs": "spc216",
+        "-cp": make_edits.output.file["-o"].result()
+    }
+    solv_outputs = {"-o": "solvated_protein.gro"}
+    solv_process = gmxapi.commandline_operation(
+        "gmx", solv_args, solv_inputs, solv_outputs
+    )
+
+    # change back to og dir
+    os.chdir(original_dir)
+
+    # return just the output construct b/c i'm not sure if this lazy evaluates
+    # it's nice to keep it lazy until it needs to happen
+    return solv_process.output
 
 
 def optimize_configuration():
