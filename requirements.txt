@@ -1,0 +1,7 @@
+setuptools
+wheels
+pytest
+requests
+mpi4py
+gmxapi
+-e .
