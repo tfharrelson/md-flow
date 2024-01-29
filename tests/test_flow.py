@@ -3,6 +3,7 @@ import logging
 import pytest
 import os
 import glob
+import tempfile
 
 
 @pytest.fixture
@@ -12,22 +13,19 @@ def logger() -> logging.Logger:
 
 @pytest.fixture
 def setup_pdb():
-    # check that we are in tmp_tests
-    folder = os.path.split(os.getcwd())[-1]
-    print(folder)
+    with tempfile.TemporaryDirectory() as dir:
+        cwd = os.getcwd()
+        # check that we are in tmp_tests
+        folder = os.path.split(cwd)[-1]
 
-    # if we're not in the right folder raise an exception
-    if folder != "tmp_tests":
-        raise Exception
-    yield "P00250"
+        # if we're not in the right folder raise an exception
+        if folder != "tmp_tests":
+            raise Exception
+        os.chdir(dir)
+        yield "P00250"
 
-    # teardown here, remove all dumb gmx files
-    # old files start with '#', and the others are pdb, itp, top, and gro
-    # ideally should be able to delete entire folder
-    if "tmp_tests" in os.getcwd():
-        files = glob.glob(os.path.join([os.getcwd(), '*']))
-        for file in files:
-            os.remove(file)
+        # cleanup by going back to previous dir
+        os.chdir(cwd)
 
 
 def test_get_pdb(caplog, logger, setup_pdb):
