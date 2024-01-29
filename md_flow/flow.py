@@ -51,7 +51,6 @@ def pdb2gmx(
     gro_name="conf",
     top_name="topol",
     itp_name="posre",
-    temp_dir=""
 ) -> any:
     """
     Function that invokes the pdb2gmx helper function in Gromacs. This will
@@ -63,19 +62,16 @@ def pdb2gmx(
         logger (logging.Logger): class that sends messages to stdin/err.
         gro_name (str): the name of the .gro file that will be created
         top_name (str): the name of the topology file to be created
-        temp_dir (str): the name of the directory to store the outputs
-
+        itp_name (str): the name of the .itp file to be created
     Returns:
-        Nothing
+        OutputDataProxy: output object of gmx cli api from python.
     """
-    # get the og cwd to go back later before returning
-    original_dir = os.getcwd()
 
-    # change to the temp dir so all rando files/folders get made there
-    os.chdir(temp_dir)
+    # get the pwd to prepend to relative file paths to be made
+    cwd = os.getcwd()
 
     # create the temp pdb file from the string input
-    temp_pdb = open(os.path.join(temp_dir, "temp_input.pdb"), 'w')
+    temp_pdb = open(os.path.join(cwd, "temp_input.pdb"), 'w')
     temp_pdb.write(file_string)
     logger.info(f"writing files to {temp_pdb.name} directory")
 
@@ -92,8 +88,12 @@ def pdb2gmx(
         itp_file = itp_name + ".itp"
     else:
         itp_file = itp_name
+    # add directory prefix to everybody
+    gro_file = os.path.join(cwd, gro_file)
+    top_file = os.path.join(cwd, top_file)
+    itp_file = os.path.join(cwd, itp_file)
     logger.info(
-        f"going to store the pdb2gmx outputs at {gro_file} and {top_file} inside of temp dir: {temp_dir}"
+        f"going to store the pdb2gmx outputs at {gro_file} and {top_file}"
     )
 
     args = ['pdb2gmx', '-ff', 'amber03', '-water', 'tip3p']
@@ -107,16 +107,13 @@ def pdb2gmx(
         'gmx', args, input_files, output_files
     )
 
-    # change back to og dir
-    os.chdir(original_dir)
-
     # return the resolved file paths
     return make_top.output
 
 
 # NOTE: since the gromacs output structs are heavily mixed with C++ types,
 #       there's no way to provide effective type annotations here :(
-def hydrate_simulation_box(protein_gro: any, logger: logging.Logger, temp_dir:str = "") -> any:
+def hydrate_simulation_box(protein_gro: any, logger: logging.Logger) -> any:
     """
     Goal of this step is to hydrate the simulation box with an appropriate
     amount of water molecules. A concentration may be provided to ensure the
@@ -128,17 +125,13 @@ def hydrate_simulation_box(protein_gro: any, logger: logging.Logger, temp_dir:st
     Returns:
         solvated_gro (any): The solvated output data structure of the protein.
     """
-
-    # get the og cwd to go back later before returning
-    original_dir = os.getcwd()
-
-    # change to the temp dir so all rando files/folders get made there
-    os.chdir(temp_dir)
+    # get pwd to prepend to filepaths below
+    cwd = os.getcwd()
 
     # increase the size of the protein bounding box and center it
     edit_args = ["editconf", "-c", "-d", "1.5"]
     edit_inputs = {"-f": protein_gro.file["-o"].result()}
-    edit_outputs = {"-o": "empty_protein.gro"}
+    edit_outputs = {"-o": os.path.join(cwd, "empty_protein.gro")}
     make_edits = gmxapi.commandline_operation(
         "gmx", edit_args, edit_inputs, edit_outputs
     )
@@ -149,13 +142,10 @@ def hydrate_simulation_box(protein_gro: any, logger: logging.Logger, temp_dir:st
         "-cs": "spc216",
         "-cp": make_edits.output.file["-o"].result()
     }
-    solv_outputs = {"-o": "solvated_protein.gro"}
+    solv_outputs = {"-o": os.path.join(cwd, "solvated_protein.gro")}
     solv_process = gmxapi.commandline_operation(
         "gmx", solv_args, solv_inputs, solv_outputs
     )
-
-    # change back to og dir
-    os.chdir(original_dir)
 
     # return just the output construct b/c i'm not sure if this lazy evaluates
     # it's nice to keep it lazy until it needs to happen
@@ -175,5 +165,4 @@ def md_run():
     Function that runs a molecular dynamics simulation for a given set of input
     files.
     """
-    # input =
     pass
