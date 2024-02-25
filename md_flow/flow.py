@@ -298,7 +298,7 @@ def md_pressure_equilibrate(nvt_conf: str, top_file: str, logger: logging.Logger
     return standard_md_run(tpr_file, logger, file_prefix='npt_eq')
 
 
-def md_run(npt_conf: str, top_file: str, logger: logging.Logger) -> (any, str, str):
+def md_run(npt_conf: str, top_file: str, logger: logging.Logger, nsteps: int | None = None) -> (any, str, str):
     """
     Function that runs a molecular dynamics simulation for a given set of input
     files.
@@ -315,7 +315,7 @@ def md_run(npt_conf: str, top_file: str, logger: logging.Logger) -> (any, str, s
     )
 
     # read the tpr file into an input
-    return standard_md_run(tpr_file, logger, file_prefix='prod')
+    return standard_md_run(tpr_file, logger, file_prefix='prod', nsteps=nsteps)
 
 
 # -------------------------------------------------------------------
@@ -326,7 +326,7 @@ def md_grompp(
     conf_file: str,
     topol_file: str,
     logger: logging.Logger,
-    tpr_file_name: str = 'grompp.tpr',
+    tpr_file_name: str = 'topol.tpr',
     posres: bool = False
 ) -> any:
     '''
@@ -383,6 +383,7 @@ def standard_md_run(
     tpr_input_file: str,
     logger: logging.Logger,
     file_prefix: str = 'run',
+    nsteps: int | None = None
 ) -> (any, str, str):
     '''
     Runs a standard MD run given a tpr, and returns the md object along with
@@ -390,6 +391,8 @@ def standard_md_run(
     '''
 
     tpr_input = gmxapi.read_tpr(tpr_input_file)
+    if nsteps:
+        tpr_input = gmxapi.modify_input(tpr_input, parameters={'nsteps': nsteps})
     logger.info(f"tpr input = {tpr_input}")
     gro_output = file_prefix + '.gro'
     edr_output = file_prefix + '.edr'

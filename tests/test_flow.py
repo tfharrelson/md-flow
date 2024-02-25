@@ -15,7 +15,6 @@ def logger() -> logging.Logger:
 
 @pytest.fixture
 def setup_pdb():
-    """
     with tempfile.TemporaryDirectory() as dir:
         cwd = os.getcwd()
         # check that we are in tmp_tests
@@ -42,6 +41,7 @@ def setup_pdb():
 
     # cleanup by going back to previous dir
     os.chdir(cwd)
+    """
 
 
 def test_get_pdb(caplog, logger, setup_pdb):
@@ -160,7 +160,9 @@ def test_pressure_eq(caplog, logger, setup_pdb):
     assert os.path.isfile(solvated_file)
 
     # from the solvated output run the optimization
-    conf_file = solvated_output.file['-o'].result()
+    # from the solvated output run the optimization
+    conf_file = os.path.join(os.path.dirname(__file__), "nvt_eq.gro")
+    top_file = os.path.join(os.path.dirname(__file__), "topol.top")
     top_file = solvated_output.file['-p'].result()
 
     # run the sim
@@ -189,11 +191,11 @@ def test_prod_run(caplog, logger, setup_pdb):
     assert os.path.isfile(solvated_file)
 
     # from the solvated output run the optimization
-    conf_file = solvated_output.file['-o'].result()
-    top_file = solvated_output.file['-p'].result()
+    conf_file = os.path.join(os.path.dirname(__file__), "npt_eq.gro")
+    top_file = os.path.join(os.path.dirname(__file__), "topol.top")
 
     # run the sim
-    mdrun, eq_gro, eq_edr = md_run(conf_file, top_file, logger)
+    mdrun, eq_gro, eq_edr = md_run(conf_file, top_file, logger, nsteps=10000)
     logger.info(f"mdrun = {mdrun}")
 
     # extract the trajectory, make sure it exists
