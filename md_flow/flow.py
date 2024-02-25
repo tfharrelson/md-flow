@@ -3,6 +3,7 @@ import requests
 import logging
 import os
 import gmxapi
+from md_flow import md_inputs
 
 # TODO: initialize logger here for now, but encapsulate it into a class later
 logger = logging.getLogger("gunicorn.error")
@@ -142,18 +143,107 @@ def hydrate_simulation_box(protein_gro: any, logger: logging.Logger) -> any:
         "-cs": "spc216",
         "-cp": make_edits.output.file["-o"].result()
     }
-    solv_outputs = {"-o": os.path.join(cwd, "solvated_protein.gro")}
+    solv_outputs = {
+        "-o": os.path.join(cwd, "solvated_protein.gro"),
+        "-p": os.path.join(cwd, "topol.top")
+    }
     solv_process = gmxapi.commandline_operation(
         "gmx", solv_args, solv_inputs, solv_outputs
     )
 
+    # generate enough ions to neutralize the system
+    mdp_file = os.path.join(os.path.dirname(md_inputs.__file__), 'ions.mdp')
+    logger.info(f"found mdp_file here: {mdp_file}")
+    grompp_input_files = {
+        '-f': mdp_file,
+        '-c': solv_process.output.file['-o'],
+        '-p': solv_process.output.file['-p']
+    }
+
+    if not os.path.isfile(mdp_file):
+        logger.error("mdp file is not found!")
+        raise Exception
+    grompp = gmxapi.commandline_operation(
+        'gmx', ['grompp'],
+        input_files=grompp_input_files,
+        output_files={'-o': os.path.join(cwd, 'ions.tpr')}
+    )
+    logger.info(f"grompp output = {grompp.output}")
+    tpr_input_file = grompp.output.file['-o'].result()
+    tpr_input = gmxapi.read_tpr(tpr_input_file)
+
+    # call the genion command
+    genion = gmxapi.commandline_operation(
+        'gmx', ['genion', '-neutral'],
+        input_files={'-s': tpr_input_file},
+        output_files={
+            '-o': os.path.join(cwd, 'neutral.gro'),
+            '-p': os.path.join(cwd, 'topol.top'),
+        },
+        # this is hopefully always the solvent group, i wish i could reference
+        # by name
+        stdin='13'
+    )
+
     # return just the output construct b/c i'm not sure if this lazy evaluates
     # it's nice to keep it lazy until it needs to happen
-    return solv_process.output
+    return genion.output
 
 
-def optimize_configuration():
-    pass
+def optimize_configuration(solv_output: any, make_top_output: any, logger: logging.Logger) -> (any, str):
+    """
+    This step performs a steepest descent optimization to the local minimum of the molecular potential.
+    The goal is to remove any anomalously large forces that would cause the equilibration steps to
+    explode.
+    """
+
+    logging.getLogger('gmxapi.mdrun').setLevel(logging.DEBUG)
+
+    # get pwd to prepend to filepaths below
+    cwd = os.getcwd()
+
+    # create the binary tpr input files from the mdp files
+    # mdp_file = files('md_flow.md_inputs')
+    mdp_file = os.path.join(os.path.dirname(md_inputs.__file__), 'steep.mdp')
+    logger.info(f"found mdp_file here: {mdp_file}")
+    grompp_input_files = {
+        '-f': mdp_file,
+        '-c': solv_output.file['-o'],
+        '-p': solv_output.file['-p']
+    }
+
+    if not os.path.isfile(mdp_file):
+        logger.error("mdp file is not found!")
+        raise Exception
+    grompp = gmxapi.commandline_operation(
+        'gmx', ['grompp'],
+        input_files=grompp_input_files,
+        output_files={'-o': os.path.join(cwd, 'run.tpr')}
+    )
+    logger.info(f"grompp output = {grompp.output}")
+    tpr_input_file = grompp.output.file['-o'].result()
+    logger.info(f"tpr output = {tpr_input_file}")
+
+    # run the calculation
+    tpr_input = gmxapi.read_tpr(tpr_input_file)
+    opt_gro_filename = 'em.gro'
+    logger.info(f"tpr input = {tpr_input}")
+    md = gmxapi.mdrun(
+        input=tpr_input,
+        runtime_args={
+            '-o': 'em.trr',
+            '-e': 'em.edr',
+            '-c': opt_gro_filename,
+        }
+    )
+    md.run()
+
+    # get the output gro file
+    logger.info(f"md dir object = {md.output.directory}")
+    md_dir = md.output.directory.result()
+    opt_gro = os.path.join(md_dir, opt_gro_filename)
+
+    return md, opt_gro
 
 
 def md_equilibrate():
