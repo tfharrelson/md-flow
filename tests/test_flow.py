@@ -1,10 +1,10 @@
 from md_flow.flow import (
-    get_alphafold_pdb, pdb2gmx, hydrate_simulation_box, optimize_configuration
+    get_alphafold_pdb, pdb2gmx, hydrate_simulation_box, optimize_configuration,
+    md_temp_equilibrate, md_pressure_equilibrate, md_run
 )
 import logging
 import pytest
 import os
-import glob
 import tempfile
 
 
@@ -15,6 +15,7 @@ def logger() -> logging.Logger:
 
 @pytest.fixture
 def setup_pdb():
+    """
     with tempfile.TemporaryDirectory() as dir:
         cwd = os.getcwd()
         # check that we are in tmp_tests
@@ -41,7 +42,6 @@ def setup_pdb():
 
     # cleanup by going back to previous dir
     os.chdir(cwd)
-    """
 
 
 def test_get_pdb(caplog, logger, setup_pdb):
@@ -106,12 +106,102 @@ def test_optimize(caplog, logger, setup_pdb):
     assert os.path.isfile(solvated_file)
 
     # from the solvated output run the optimization
-    mdrun, min_gro = optimize_configuration(solvated_output, output, logger)
+    mdrun, min_gro, _ = optimize_configuration(solvated_output, output, logger)
     logger.info(f"mdrun = {mdrun}")
+
+    # extract the traj file and check that it exists
     traj_file = mdrun.output.trajectory.result()
     logger.info(f"mdrun = {traj_file}")
     assert os.path.exists(traj_file)
-    logger.info(f"testing the mdrun output {mdrun.output}")
-    logger.info(f"testing the mdrun output {mdrun.output.trajectory}")
+
+    # check the gro file for bugs
     logger.info(f"opt gro file = {min_gro}")
     run_gro_tests(min_gro, logger)
+
+
+def test_temp_eq(caplog, logger, setup_pdb):
+    caplog.set_level(logging.INFO)
+
+    pdb_string = get_alphafold_pdb(setup_pdb, logger)
+    output = pdb2gmx(pdb_string, logger)
+
+    solvated_output = hydrate_simulation_box(output, logger)
+    solvated_file = solvated_output.file["-o"].result()
+    assert os.path.isfile(solvated_file)
+
+    mdrun, min_gro, _ = optimize_configuration(solvated_output, output, logger)
+    # from the solvated output run the optimization
+    conf_file = min_gro
+    top_file = solvated_output.file['-p'].result()
+
+    # run the sim
+    mdrun, eq_gro, eq_edr = md_temp_equilibrate(conf_file, top_file, logger)
+    logger.info(f"mdrun = {mdrun}")
+
+    # extract the trajectory, make sure it exists
+    traj_file = mdrun.output.trajectory.result()
+    logger.info(f"mdrun = {traj_file}")
+
+    assert os.path.exists(traj_file)
+
+    # check the gro file for bugs
+    logger.info(f"opt gro file = {eq_gro}")
+    run_gro_tests(eq_gro, logger)
+
+
+def test_pressure_eq(caplog, logger, setup_pdb):
+    caplog.set_level(logging.INFO)
+
+    pdb_string = get_alphafold_pdb(setup_pdb, logger)
+    output = pdb2gmx(pdb_string, logger)
+
+    solvated_output = hydrate_simulation_box(output, logger)
+    solvated_file = solvated_output.file["-o"].result()
+    assert os.path.isfile(solvated_file)
+
+    # from the solvated output run the optimization
+    conf_file = solvated_output.file['-o'].result()
+    top_file = solvated_output.file['-p'].result()
+
+    # run the sim
+    mdrun, eq_gro, eq_edr = md_pressure_equilibrate(conf_file, top_file, logger)
+    logger.info(f"mdrun = {mdrun}")
+
+    # extract the trajectory, make sure it exists
+    traj_file = mdrun.output.trajectory.result()
+    logger.info(f"mdrun = {traj_file}")
+
+    assert os.path.exists(traj_file)
+
+    # check the gro file for bugs
+    logger.info(f"opt gro file = {eq_gro}")
+    run_gro_tests(eq_gro, logger)
+
+
+def test_prod_run(caplog, logger, setup_pdb):
+    caplog.set_level(logging.INFO)
+
+    pdb_string = get_alphafold_pdb(setup_pdb, logger)
+    output = pdb2gmx(pdb_string, logger)
+
+    solvated_output = hydrate_simulation_box(output, logger)
+    solvated_file = solvated_output.file["-o"].result()
+    assert os.path.isfile(solvated_file)
+
+    # from the solvated output run the optimization
+    conf_file = solvated_output.file['-o'].result()
+    top_file = solvated_output.file['-p'].result()
+
+    # run the sim
+    mdrun, eq_gro, eq_edr = md_run(conf_file, top_file, logger)
+    logger.info(f"mdrun = {mdrun}")
+
+    # extract the trajectory, make sure it exists
+    traj_file = mdrun.output.trajectory.result()
+    logger.info(f"mdrun = {traj_file}")
+
+    assert os.path.exists(traj_file)
+
+    # check the gro file for bugs
+    logger.info(f"opt gro file = {eq_gro}")
+    run_gro_tests(eq_gro, logger)
